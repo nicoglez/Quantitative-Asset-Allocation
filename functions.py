@@ -4,6 +4,74 @@ import numpy as np
 from typing import Optional
 
 
+class asset_allocation:
+
+    def __init__(self, data_stocks: pd.DataFrame, data_benchmark: pd.DataFrame, rf: float):
+        self.stocks = data_stocks
+        self.stocks_rends = data_stocks.pct_change().dropna()
+        self.bench = data_benchmark
+        self.bench_rends = data_benchmark.pct_change().dropna()
+        self.rf = rf
+
+    # Get metrics
+    @staticmethod
+    def get_metrics(w, mean, cov):
+        returns = np.sum(mean * w) * 252
+        var = np.dot(w, np.dot(cov, w)) ** 0.5 * 252
+        std = np.dot(w, np.dot(cov, w)) ** 0.5 * (252 ** 0.5)
+        return var, std, returns
+
+    # Downside Risk
+    @staticmethod
+    def downside_risk(diff: pd.DataFrame):
+        downside = diff[diff <= 0].fillna(0)
+        std = downside.std()
+        return np.array(std)
+
+    # Upside Risk
+    @staticmethod
+    def upside_risk(diff: pd.DataFrame):
+        upside = diff[diff >= 0].fillna(0)
+        std = upside.std()
+        return np.array(std)
+
+    # Min Variance Optimization
+    def min_var(self, n_port):
+        mean = self.stocks_rends.mean()
+        cov = self.stocks_rends.cov()
+        n_stocks = len(self.stocks.columns)
+        history = np.zeros((1, n_port))
+        w = []
+        # Montecarlo simulation
+        for i in range(n_port):
+            temp = np.random.uniform(0, 1, n_stocks)
+            temp = temp / np.sum(temp)
+            w.append(temp)
+            var, std, r = self.get_metrics(temp, mean, cov)
+            history[0, i] = var
+
+        # return optimal weights
+        return w[np.argmin(history)]
+
+    # Sharpe Ratio optimization
+    def sharpe_ratio(self, n_port):
+        mean = self.stocks_rends.mean()
+        cov = self.stocks_rends.cov()
+        n_stocks = len(self.stocks.columns)
+        history = np.zeros((1, n_port))
+        w = []
+        # Montecarlo simulation
+        for i in range(n_port):
+            temp = np.random.uniform(0, 1, n_stocks)
+            temp = temp / np.sum(temp)
+            w.append(temp)
+            var, std, r = self.get_metrics(temp, mean, cov)
+            history[0, i] = (r - self.rf) / std
+
+        # return optimal weights
+        return w[np.argmax(history)]
+    
+
 class download_data:
 
     def __init__(self, benchmark: str, start_date=str, end_date=str,
