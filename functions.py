@@ -70,7 +70,7 @@ class asset_allocation:
 
         # return optimal weights
         return w[np.argmax(history)]
-    
+
 
 class download_data:
 
@@ -82,7 +82,9 @@ class download_data:
         self.start = start_date
         self.end = end_date
 
-    def download(self) -> pd.DataFrame:
+    def download(self) -> tuple:
+
+        final = pd.DataFrame()
 
         if self.USA:
             # download USA data
@@ -97,7 +99,6 @@ class download_data:
             # join
             closes = closes.join(closes_TC, on="Date", how="left")
             # multiply exchange rate and prices
-            final = pd.DataFrame()
             for i in closes.columns:
                 if i == "Date":
                     final[i] = closes.Date
