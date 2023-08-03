@@ -71,6 +71,22 @@ class asset_allocation:
         # return optimal weights
         return w[np.argmax(history)]
 
+    # Make summary
+    def summary(self, n_port):
+        # Get weights with multiple asset allocation tecniques
+        w_MV = np.array([self.min_var(n_port) for i in range(20)]).mean(axis=0)
+        w_SR = np.array([self.sharpe_ratio(n_port) for i in range(20)]).mean(axis=0)
+
+        # Create df
+        df = pd.DataFrame()
+        df["Min Var"] = w_MV
+        df["Max Sharpe"] = w_SR
+        df["Stocks"] = self.stocks.columns
+
+        df.set_index("Stocks", inplace=True)
+
+        return df.T
+
 
 class download_data:
 
@@ -92,7 +108,7 @@ class download_data:
             closes.reset_index(inplace=True)
             closes['Date'] = closes['Date'].dt.tz_localize(None)
             # download USD/MXN data
-            closes_TC = pd.DataFrame(yf.download("MXN=X", start=start_date, end=end_date)["Adj Close"])
+            closes_TC = pd.DataFrame(yf.download("MXN=X", start=self.start, end=self.end)["Adj Close"])
             closes_TC.reset_index(inplace=True)
             closes_TC['Date'] = closes_TC['Date'].dt.tz_localize(None)
             closes_TC.set_index("Date", inplace=True)
@@ -111,7 +127,7 @@ class download_data:
 
         if self.MX:
             # download MX stock data
-            closes_mx = pd.DataFrame(yf.download(self.MX, start=start_date, end=end_date)["Adj Close"])
+            closes_mx = pd.DataFrame(yf.download(self.MX, start=self.start, end=self.end)["Adj Close"])
             closes_mx.reset_index(inplace=True)
             closes_mx['Date'] = closes_mx['Date'].dt.tz_localize(None)
             closes_mx.set_index("Date", inplace=True)
