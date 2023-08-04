@@ -177,6 +177,21 @@ class backtesting:
 
         return h
 
+    def metrics(self, rf: float):
+        # get portfolio evolution
+        evol = self.history.copy()
+        # get metrics
+        returns = evol.pct_change().dropna().mean() * 252
+        std = evol.pct_change().dropna().std() * 252 ** 0.5
+        sharpe = (returns - rf) / std
+        # create df
+        m = pd.DataFrame()
+        m["Annualized Return"] = returns
+        m["Annualized Vol"] = std
+        m["Sharpe Ratio"] = sharpe
+
+        return m
+
 class download_data:
 
     def __init__(self, benchmark: str, start_date=str, end_date=str,
