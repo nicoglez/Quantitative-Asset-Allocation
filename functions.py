@@ -71,6 +71,51 @@ class asset_allocation:
         # return optimal weights
         return w[np.argmax(history)]
 
+    # Semivariance Optimization
+    def semivariance(self, n_port):
+        # Calculate downside risk
+        diff = self.stocks_rends - self.bench_rends.values
+        std = self.downside_risk(diff)
+        # Calculate semivar matrix
+        semivar_matrix = np.multiply(std.reshape(len(std), 1), std) * diff.corr()
+        # Montecarlo simulation
+        mean = self.stocks_rends.mean()
+        cov = self.stocks_rends.cov()
+        n_stocks = len(self.stocks.columns)
+        history = np.zeros((1, n_port))
+        w = []
+        # Montecarlo simulation
+        for i in range(n_port):
+            temp = np.random.uniform(0, 1, n_stocks)
+            temp = temp / np.sum(temp)
+            w.append(temp)
+            history[0, i] = np.dot(temp, np.dot(semivar_matrix, temp))
+
+        return w[np.argmin(history)]
+
+    # Omega Optimization
+    def omega(self, n_port):
+        # Calculate downside risk
+        diff = self.stocks_rends - self.bench_rends.values
+        downside = self.downside_risk(diff)
+        upside = self.upside_risk(diff)
+        omega = upside / downside
+
+        # Montecarlo simulation
+        mean = self.stocks_rends.mean()
+        cov = self.stocks_rends.cov()
+        n_stocks = len(self.stocks.columns)
+        history = np.zeros((1, n_port))
+        w = []
+        # Montecarlo simulation
+        for i in range(n_port):
+            temp = np.random.uniform(0, 1, n_stocks)
+            temp = temp / np.sum(temp)
+            w.append(temp)
+            history[0, i] = np.dot(omega, temp)
+
+        return w[np.argmax(history)]
+
     # Make summary
     def summary(self, n_port):
         # Get weights with multiple asset allocation tecniques
