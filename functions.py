@@ -121,11 +121,15 @@ class asset_allocation:
         # Get weights with multiple asset allocation tecniques
         w_MV = np.array([self.min_var(n_port) for i in range(20)]).mean(axis=0)
         w_SR = np.array([self.sharpe_ratio(n_port) for i in range(20)]).mean(axis=0)
+        w_SV = np.array([self.semivariance(n_port) for i in range(20)]).mean(axis=0)
+        w_O = np.array([self.omega(n_port) for i in range(20)]).mean(axis=0)
 
         # Create df
         df = pd.DataFrame()
         df["Min Var"] = w_MV
         df["Max Sharpe"] = w_SR
+        df["Semivariance"] = w_SV
+        df["Omega"] = w_O
         df["Stocks"] = self.stocks.columns
 
         df.set_index("Stocks", inplace=True)
