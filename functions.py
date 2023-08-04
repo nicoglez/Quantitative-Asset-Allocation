@@ -137,6 +137,46 @@ class asset_allocation:
         return df.T
 
 
+class backtesting:
+
+    def __init__(self, weights_summary: pd.DataFrame, data_stocks: pd.DataFrame,
+                 data_benchmark: pd.DataFrame, cap_inicial: int):
+        self.weights = weights_summary
+        self.returns = data_stocks.pct_change().dropna()
+        self.bench = data_benchmark.pct_change().dropna()
+        self.capital = cap_inicial
+
+    @property
+    def history(self):
+        # Copy returns to dont mess with the initial variables
+        returns = self.returns.copy()
+        weights = self.weights.copy()
+        # Change pandas display format
+        pd.options.display.float_format = '{:,.4f}'.format
+        # Empty DF
+        h = pd.DataFrame()
+        # Make backtesting for the different weights of strategies
+        for i in range(len(weights)):
+            # get weights
+            temp = weights.iloc[i, :]
+            # get returns of strategy
+            port_returns = 1 + (returns * temp).sum(axis=1)
+            # make cumprod
+            port_returns[0] = self.capital
+            port_returns = port_returns.cumprod()
+            # fill DF
+            h[weights.iloc[i, :].name] = port_returns
+        # Backtesting for benchmark
+        rb = self.bench.copy()
+        benchmark = 1 + rb
+        # make cumprod
+        benchmark.iloc[0] = 1000000
+        benchmark = benchmark.cumprod()
+        # fill DF
+        h["Benchmark"] = benchmark
+
+        return h
+
 class download_data:
 
     def __init__(self, benchmark: str, start_date=str, end_date=str,
