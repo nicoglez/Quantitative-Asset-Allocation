@@ -170,7 +170,7 @@ class backtesting:
         rb = self.bench.copy()
         benchmark = 1 + rb
         # make cumprod
-        benchmark.iloc[0] = 1000000
+        benchmark.iloc[0] = self.capital
         benchmark = benchmark.cumprod()
         # fill DF
         h["Benchmark"] = benchmark
