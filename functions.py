@@ -238,22 +238,29 @@ class download_data:
             if self.USA:
                 # join data
                 final = final.join(closes_mx, on="Date", how="left")
-                # fill na
-                v = []
-                for i in final["Adj Close"][1:]:
-                    if np.isnan(i):
-                        v.append(v[-1])
+                mx_tickers = closes_mx.columns
 
-                    else:
-                        v.append(i)
-                v = [v[0]] + v
-                # join filled data
-                final.drop("Adj Close", axis=1, inplace=True)
-                final[self.MX] = v
-                final.set_index("Date", inplace=True)
+                for i_ticker in mx_tickers:
+                    # fill na
+                    v = []
+                    for i in final[i_ticker][1:]:
+                        if np.isnan(i):
+                            try:
+                                v.append(v[-1])
+                            except:
+                                v.append(final[i_ticker].dropna().iloc[0])
+
+                        else:
+                            v.append(i)
+
+                    v = [v[0]] + v
+                    # join filled data
+                    final.drop(i_ticker, axis=1, inplace=True)
+                    final[i_ticker if i_ticker != "Adj Close" else self.MX] = v
             else:
                 final = closes_mx
 
+        final.set_index("Date", inplace=True)
         # Download data
         benchmark = pd.DataFrame(yf.download(self.bench, start=self.start, end=self.end)["Adj Close"])
         benchmark.reset_index(inplace=True)
