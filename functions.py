@@ -2,6 +2,7 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 from typing import Optional
+import datetime as dt
 
 
 class asset_allocation:
@@ -192,9 +193,10 @@ class backtesting:
 
         return m
 
+
 class download_data:
 
-    def __init__(self, benchmark: str, start_date=str, end_date=str,
+    def __init__(self, start_date=str, end_date=str, benchmark: Optional[str] = None,
                  tickers_USA: Optional[str] = None, tickers_MX: Optional[str] = None):
         self.USA = tickers_USA
         self.MX = tickers_MX
@@ -203,8 +205,6 @@ class download_data:
         self.end = end_date
 
     def download(self) -> tuple:
-
-        final = pd.DataFrame()
 
         if self.USA:
             # download USA data
@@ -219,6 +219,7 @@ class download_data:
             # join
             closes = closes.join(closes_TC, on="Date", how="left")
             # multiply exchange rate and prices
+            final = pd.DataFrame()
             for i in closes.columns:
                 if i == "Date":
                     final[i] = closes.Date
@@ -256,15 +257,153 @@ class download_data:
                     v = [v[0]] + v
                     # join filled data
                     final.drop(i_ticker, axis=1, inplace=True)
-                    final[i_ticker if i_ticker != "Adj Close" else self.MX] = v
+                    final[i_ticker] = v
             else:
                 final = closes_mx
 
         final.set_index("Date", inplace=True)
-        # Download data
-        benchmark = pd.DataFrame(yf.download(self.bench, start=self.start, end=self.end)["Adj Close"])
-        benchmark.reset_index(inplace=True)
-        benchmark['Date'] = benchmark['Date'].dt.tz_localize(None)
-        benchmark.set_index("Date", inplace=True)
 
-        return final, benchmark
+        # Download data
+        if self.bench:
+            benchmark = pd.DataFrame(yf.download(self.bench, start=self.start, end=self.end)["Adj Close"])
+            benchmark.reset_index(inplace=True)
+            benchmark['Date'] = benchmark['Date'].dt.tz_localize(None)
+            benchmark.set_index("Date", inplace=True)
+
+            return final, benchmark
+
+        else:
+            return final
+
+
+class dynamic_backtesting:
+
+    def __init__(self, data_stocks, data_opt, data_benchmark, data_opt_b, capital):
+        self.data = data_stocks
+        self.data_opt = data_opt
+        self.bench = data_benchmark
+        self.bench_opt = data_opt_b
+        self.capital = capital
+
+    # Split the df in n periods
+    @staticmethod
+    def split_df(data: pd.DataFrame, f_day: bool, yearly: bool):
+
+        p_data = []
+        unique_years = list(set([i.strftime("%Y") for i in data.index]))
+        unique_years = [str(j) for j in sorted([int(i) for i in unique_years])]
+        holds, typ = [], f_day
+        counter = 0
+        for i in unique_years:
+            holds.append(dt.datetime.strptime(f"{i}-01-01", "%Y-%m-%d"))
+            holds.append(dt.datetime.strptime(f"{i}-06-30", "%Y-%m-%d"))
+        len_dates = len(holds)
+
+        if yearly:
+            for i in range(len_dates - 1):
+                if i == (len_dates - 2):
+                    p_data.append(data[(data.index > holds[i])])
+                else:
+                    p_data.append(data[(data.index >= holds[i]) & (data.index < holds[i + 2])])
+        else:
+            if not typ:
+                holds = holds[1:]
+
+            len_dates = len(holds)
+            for i in range(len_dates):
+                if i == (len_dates - 1):
+                    p_data.append(data[(data.index > holds[i])])
+                else:
+                    p_data.append(data[(data.index > holds[i]) & (data.index < holds[i + 1])])
+
+        return p_data
+
+    # Metrics template
+    @staticmethod
+    def metrics(evol, rf):
+        # get portfolio evolution
+        evol = evol
+        # get metrics
+        returns = evol.pct_change().dropna().mean() * 252
+        std = evol.pct_change().dropna().std() * 252 ** 0.5
+        sharpe = (returns - rf) / std
+        # create df
+        m = pd.DataFrame()
+        m["Annualized Return"] = returns * 100
+        m["Annualized Vol"] = std * 100
+        m["Sharpe Ratio"] = sharpe
+
+        return m
+
+    # multiple asset allocation
+    def multiple_AA(self, rf, sims):
+        data_opt = self.data_opt.copy()
+        data_benchmark_opt = self.bench_opt.copy()
+        # split
+        data = self.split_df(data=data_opt, f_day=True, yearly=True)[:-1]
+        data_bm = self.split_df(data=data_benchmark_opt, f_day=True, yearly=True)[:-1]
+        ponds = []
+        # optimize
+        for i in range(len(data)):
+            ponds.append(asset_allocation(data[i], data_bm[i], rf).summary(sims))
+
+        return ponds
+
+    # make backtesting
+    def backtesting(self, rf, sims):
+
+        # Copy data
+        bt_data = self.split_df(data=self.data.copy(), f_day=True, yearly=False)
+        data_benchmark = self.bench.copy()
+
+        AA = self.multiple_AA(rf=rf, sims=sims)
+        capital = self.capital
+
+        # Start methods
+        methods = ['Min Var', 'Max Sharpe', 'Semivariance', 'Omega', 'Benchmark']
+        backtest = pd.DataFrame()
+        total_fees, t_pl = {}, {}
+
+        # Make dynamic backtesting for multiple methods
+        for method in range(len(methods)):
+
+            historical = [capital]
+            fees, pl = [], []
+
+            if methods[method] == "Benchmark":
+                rb = data_benchmark.pct_change()
+                benchmark = 1 + rb
+                # make cumprod
+                benchmark.iloc[0] = capital
+                benchmark = benchmark.cumprod()
+                backtest[methods[method]] = benchmark
+
+
+            else:
+                for sim in range(len(bt_data)):
+
+                    n_stocks = np.floor((AA[sim].iloc[method, :] * historical[-1]) / bt_data[sim].iloc[0, :])
+                    if sim == 0:
+                        historical = np.sum(bt_data[sim] * n_stocks, axis=1)
+                        fees.append(historical[0] * (1.16 * .00125))
+                    else:
+                        historical = pd.concat([historical, np.sum(bt_data[sim] * n_stocks, axis=1)])
+
+                        new_position = bt_data[sim].iloc[0, :] * n_stocks
+                        old_position = bt_data[sim - 1].iloc[0, :] * old_stocks
+                        port_old_value = np.sum(old_position)
+                        port_new_value = np.sum(new_position)
+                        pl.append(port_new_value - port_old_value)
+                        fees.append(sum(abs(new_position - old_position)) * ((1.16 * .00125)))
+
+                    old_stocks = n_stocks
+
+                t_pl.update({methods[method]: pl})
+                total_fees.update({methods[method]: np.sum(fees)})
+                historical[0] = capital
+                backtest[methods[method]] = historical
+
+        fees_df = pd.DataFrame(total_fees.items(), columns=["Method", "Charged Fees"])
+        fees_df.set_index("Method", inplace=True)
+        metrics = self.metrics(backtest, rf)
+        return backtest, metrics, fees_df
