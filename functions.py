@@ -7,7 +7,7 @@ import datetime as dt
 
 class asset_allocation:
 
-    def __init__(self, data_stocks: pd.DataFrame, data_benchmark: pd.DataFrame, rf: float):
+    def __init__(self, data_stocks: pd.DataFrame, data_benchmark: pd.DataFrame, rf: Optional[float] = .05):
         self.stocks = data_stocks
         self.stocks_rends = data_stocks.pct_change().dropna()
         self.bench = data_benchmark
@@ -75,10 +75,11 @@ class asset_allocation:
     # Semivariance Optimization
     def semivariance(self, n_port):
         # Calculate downside risk
+	corr = self.stocks_rends.corr()
         diff = self.stocks_rends - self.bench_rends.values
         std = self.downside_risk(diff)
         # Calculate semivar matrix
-        semivar_matrix = np.multiply(std.reshape(len(std), 1), std) * diff.corr()
+        semivar_matrix = np.multiply(std.reshape(len(std), 1), std) * corr
         # Montecarlo simulation
         mean = self.stocks_rends.mean()
         cov = self.stocks_rends.cov()
@@ -182,6 +183,7 @@ class backtesting:
         # get portfolio evolution
         evol = self.history.copy()
         # get metrics
+        rets = evol.pct_change().dropna()
         returns = evol.pct_change().dropna().mean() * 252
         std = evol.pct_change().dropna().std() * 252 ** 0.5
         sharpe = (returns - rf) / std
@@ -190,7 +192,7 @@ class backtesting:
         m["Annualized Return"] = returns
         m["Annualized Vol"] = std
         m["Sharpe Ratio"] = sharpe
-
+        m['VaR 97.5%'] = np.percentile(rets, 100-97.5, axis=0)
         return m
 
 
@@ -208,11 +210,11 @@ class download_data:
 
         if self.USA:
             # download USA data
-            closes = pd.DataFrame(yf.download(self.USA, start=self.start, end=self.end)["Adj Close"])
+            closes = pd.DataFrame(yf.download(self.USA, start=self.start, end=self.end, progress=False)["Adj Close"])
             closes.reset_index(inplace=True)
             closes['Date'] = closes['Date'].dt.tz_localize(None)
             # download USD/MXN data
-            closes_TC = pd.DataFrame(yf.download("MXN=X", start=self.start, end=self.end)["Adj Close"])
+            closes_TC = pd.DataFrame(yf.download("MXN=X", start=self.start, end=self.end, progress=False)["Adj Close"])
             closes_TC.reset_index(inplace=True)
             closes_TC['Date'] = closes_TC['Date'].dt.tz_localize(None)
             closes_TC.set_index("Date", inplace=True)
@@ -232,7 +234,7 @@ class download_data:
 
         if self.MX:
             # download MX stock data
-            closes_mx = pd.DataFrame(yf.download(self.MX, start=self.start, end=self.end)["Adj Close"])
+            closes_mx = pd.DataFrame(yf.download(self.MX, start=self.start, end=self.end, progress=False)["Adj Close"])
             closes_mx.reset_index(inplace=True)
             closes_mx['Date'] = closes_mx['Date'].dt.tz_localize(None)
             closes_mx.set_index("Date", inplace=True)
@@ -265,7 +267,7 @@ class download_data:
 
         # Download data
         if self.bench:
-            benchmark = pd.DataFrame(yf.download(self.bench, start=self.start, end=self.end)["Adj Close"])
+            benchmark = pd.DataFrame(yf.download(self.bench, start=self.start, end=self.end, progress=False)["Adj Close"])
             benchmark.reset_index(inplace=True)
             benchmark['Date'] = benchmark['Date'].dt.tz_localize(None)
             benchmark.set_index("Date", inplace=True)
@@ -324,6 +326,7 @@ class dynamic_backtesting:
         # get portfolio evolution
         evol = evol
         # get metrics
+        rets = evol.pct_change().dropna()
         returns = evol.pct_change().dropna().mean() * 252
         std = evol.pct_change().dropna().std() * 252 ** 0.5
         sharpe = (returns - rf) / std
@@ -331,7 +334,7 @@ class dynamic_backtesting:
         m = pd.DataFrame()
         m["Annualized Return"] = returns * 100
         m["Annualized Vol"] = std * 100
-        m["Sharpe Ratio"] = sharpe
+        m['VaR 97.5%'] = np.percentile(rets, 100-97.5, axis=0)*100
 
         return m
 
@@ -350,14 +353,14 @@ class dynamic_backtesting:
         return ponds
 
     # make backtesting
-    def backtesting(self, rf, sims):
-
+    def backtesting(self, rf, sims, show_weights=False):
         # Copy data
         bt_data = self.split_df(data=self.data.copy(), f_day=True, yearly=False)
         data_benchmark = self.bench.copy()
 
         AA = self.multiple_AA(rf=rf, sims=sims)
         capital = self.capital
+
 
         # Start methods
         methods = ['Min Var', 'Max Sharpe', 'Semivariance', 'Omega', 'Benchmark']
@@ -369,6 +372,7 @@ class dynamic_backtesting:
 
             historical = [capital]
             fees, pl = [], []
+
 
             if methods[method] == "Benchmark":
                 rb = data_benchmark.pct_change()
@@ -406,4 +410,34 @@ class dynamic_backtesting:
         fees_df = pd.DataFrame(total_fees.items(), columns=["Method", "Charged Fees"])
         fees_df.set_index("Method", inplace=True)
         metrics = self.metrics(backtest, rf)
-        return backtest, metrics, fees_df
+
+        if show_weights:
+            for i in AA:
+                try:
+                    i["IUITN"]=i["Adj Close"]
+                    i.drop("Adj Close", axis=1, inplace=True)
+                except:
+                    continue
+            return backtest[["Semivariance", "Benchmark"]], metrics.T[["Semivariance", "Benchmark"]], AA[-1].T[["Semivariance"]]
+        else:
+            return backtest[["Semivariance", "Benchmark"]], metrics.T[["Semivariance", "Benchmark"]]
+
+        
+def get_weights(data, data_benchmark):
+    
+    if 'Adj Close' in data.columns:
+        data["IUITN"]=data["Adj Close"]
+        data.drop("Adj Close", axis=1, inplace=True)
+    cl=asset_allocation(data[data.index>'2023-07-01'], data_benchmark[data_benchmark.index>'2023-07-01'])
+    w=np.array([cl.semivariance(10000) for i in range(100)]).mean(axis=0)
+    d=dict(zip(data.columns, w))
+    
+    df=pd.DataFrame(d, index=['weights']).T*100
+    df.sort_values(by='weights', ascending=False, inplace=True)
+
+    df['P2']=df['weights']*0.15
+    df['P3']=df['weights']*0.45
+    df['P4']=df['weights']*0.6
+    df['P5']=df['weights']*0.75
+    
+    return df
